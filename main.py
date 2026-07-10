@@ -297,6 +297,43 @@ def extract_city(text: str) -> Optional[str]:
     return None
 
 
+def extract_department(text: str) -> Optional[str]:
+    patterns = [
+        r'\bdepartment\s*[:\-]\s*([A-Z][A-Za-z&/ -]+)\b',
+        r'\bdept\.?\s*[:\-]\s*([A-Z][A-Za-z&/ -]+)\b',
+        r'\bdepartment\s+([A-Z][A-Za-z&/ -]+)\b',
+        r'\bdept\.?\s+([A-Z][A-Za-z&/ -]+)\b',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            value = match.group(1).strip().rstrip(".,:;-")
+            if value:
+                return value
+
+    known_departments = [
+        "Engineering",
+        "HR",
+        "Human Resources",
+        "Finance",
+        "Marketing",
+        "Sales",
+        "Operations",
+        "Support",
+        "Product",
+        "Legal",
+        "IT",
+        "Administration",
+    ]
+
+    for dept in known_departments:
+        if re.search(rf'\b{re.escape(dept)}\b', text, re.IGNORECASE):
+            return dept
+
+    return None
+
+
 def extract_quantity(text: str) -> Optional[int]:
     patterns = [
         r'\b(\d+)\s+\w+',
@@ -364,6 +401,9 @@ def generic_extract(field_name: str, field_type: str, text: str) -> Any:
             text,
             ["customer name", "customer", "client name", "client", "buyer"]
         ) or extract_person_name_generic(text)
+
+    if "department" in name or name == "dept":
+        return extract_department(text)
 
     if name.endswith("_name") or name == "name":
         return extract_person_name_by_label(
