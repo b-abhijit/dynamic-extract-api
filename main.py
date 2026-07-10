@@ -369,6 +369,21 @@ def extract_time_hhmm(text: str) -> Optional[str]:
     return None
 
 
+def extract_host(text: str) -> Optional[str]:
+    patterns = [
+        r'\bhost\s*[:=\-]?\s*([A-Za-z0-9][A-Za-z0-9-]{1,62})\b',
+        r'\bhostname\s*[:=\-]?\s*([A-Za-z0-9][A-Za-z0-9-]{1,62})\b',
+        r'\bserver\s*[:=\-]?\s*([A-Za-z0-9][A-Za-z0-9-]{1,62})\b',
+        r'\b([A-Za-z0-9][A-Za-z0-9-]{1,62})\b',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group(1).strip().rstrip(".,:;-")
+    return None
+
+
 def extract_date_value(text: str) -> Optional[str]:
     patterns = [
         r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',
@@ -592,6 +607,9 @@ def generic_extract(field_name: str, field_type: str, text: str) -> Any:
 
     if name == "alert_time" or "time" in name:
         return extract_time_hhmm(text)
+
+    if name == "host" or "hostname" in name or "server" in name:
+        return extract_host(text)
 
     if name == "metric" or "metric" in name:
         return extract_metric(text)
