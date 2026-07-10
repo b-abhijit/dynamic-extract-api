@@ -610,6 +610,26 @@ def extract_array_integers(text: str) -> Optional[List[int]]:
     values = [int(n) for n in nums]
     return values if values else None
 
+def extract_diagnosis(text: str) -> Optional[str]:
+    patterns = [
+        r'\bdiagnosis\s*[:\-]\s*([A-Za-z0-9 ,\-\/()]+?)(?:[.;\n]|$)',
+        r'\bdx\s*[:\-]\s*([A-Za-z0-9 ,\-\/()]+?)(?:[.;\n]|$)',
+        r'\bimpression\s*[:\-]\s*([A-Za-z0-9 ,\-\/()]+?)(?:[.;\n]|$)',
+        r'\bdiagnosed with\s+([A-Za-z0-9 ,\-\/()]+?)(?:[.;\n]|$)',
+        r'\bprimary diagnosis\s*[:\-]\s*([A-Za-z0-9 ,\-\/()]+?)(?:[.;\n]|$)',
+    ]
+    for p in patterns:
+        m = re.search(p, text, re.IGNORECASE)
+        if m:
+            val = m.group(1).strip().rstrip('.,;:')
+            # cleanup multiple spaces
+            val = re.sub(r'\s+', ' ', val)
+            return val
+    # fallback: look for capitalized medical terms (simple heuristic)
+    m = re.search(r'\b(Type\s*\d+\s+[A-Za-z][A-Za-z0-9\- ]+)\b', text, re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    return None
 
 def generic_extract(field_name: str, field_type: str, text: str) -> Any:
     name = field_name.lower()
