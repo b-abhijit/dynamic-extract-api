@@ -193,7 +193,6 @@ def extract_person_name_by_label(text: str, labels: List[str]) -> Optional[str]:
             candidate = clean_extracted_name(match.group(1))
             if is_valid_person_name(candidate):
                 return candidate
-
     return None
 
 
@@ -334,6 +333,22 @@ def extract_metric(text: str) -> Optional[str]:
             value = match.group(1).strip().rstrip(".,:;-")
             if value:
                 return value
+
+    return None
+
+
+def extract_threshold(text: str) -> Optional[float]:
+    patterns = [
+        r'\bthreshold\s*[:\-]\s*([0-9]+(?:\.[0-9]+)?)\b',
+        r'\bthreshold\s+([0-9]+(?:\.[0-9]+)?)\b',
+        r'\btarget\s*[:\-]\s*([0-9]+(?:\.[0-9]+)?)\b',
+        r'\b([0-9]+(?:\.[0-9]+)?)\s*%?\s*threshold\b',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return parse_float(match.group(1))
 
     return None
 
@@ -561,6 +576,9 @@ def generic_extract(field_name: str, field_type: str, text: str) -> Any:
 
     if name == "metric" or "metric" in name:
         return extract_metric(text)
+
+    if "threshold" in name:
+        return extract_threshold(text)
 
     if "grade" in name or "level" in name or "band" in name:
         return extract_grade(text)
