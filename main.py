@@ -339,20 +339,18 @@ def extract_metric(text: str) -> Optional[str]:
 
 def extract_threshold(text: str) -> Optional[float]:
     patterns = [
-        r"threshold\s*(?:is|=|:|-)?\s*([0-9]+(?:\.[0-9]+)?)\s*%?",
-        r"target\s*(?:is|=|:|-)?\s*([0-9]+(?:\.[0-9]+)?)\s*%?",
-        r"limit\s*(?:is|=|:|-)?\s*([0-9]+(?:\.[0-9]+)?)\s*%?",
-        r"above\s+([0-9]+(?:\.[0-9]+)?)\s*%?",
-        r"over\s+([0-9]+(?:\.[0-9]+)?)\s*%?",
-        r"greater than\s+([0-9]+(?:\.[0-9]+)?)\s*%?",
-        r"exceeds?\s+([0-9]+(?:\.[0-9]+)?)\s*%?",
-        r"([0-9]+(?:\.[0-9]+)?)\s*%?\s*threshold",
+        r'\bthreshold\s*[:=\-]?\s*([0-9]+(?:\.[0-9]+)?)\s*%?\b',
+        r'\bthreshold\s+(?:is|was|to|at)\s+([0-9]+(?:\.[0-9]+)?)\s*%?\b',
+        r'\b(?:alert\s+)?threshold\s+of\s+([0-9]+(?:\.[0-9]+)?)\s*%?\b',
+        r'\btarget\s*[:=\-]?\s*([0-9]+(?:\.[0-9]+)?)\s*%?\b',
+        r'\b([0-9]+(?:\.[0-9]+)?)\s*%?\s*(?:threshold|target)\b',
+        r'\b([0-9]+(?:\.[0-9]+)?)\s*%?\b',
     ]
 
     for pattern in patterns:
-        m = re.search(pattern, text, re.IGNORECASE)
-        if m:
-            return float(m.group(1))
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return parse_float(match.group(1))
 
     return None
 
