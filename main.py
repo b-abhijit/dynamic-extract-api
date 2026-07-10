@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import traceback
 from datetime import date
 from typing import Any, Dict, List, Optional
 
@@ -47,6 +48,8 @@ def normalize_type(type_name: str) -> str:
 
 
 def validate_schema(schema_map: Dict[str, str]) -> None:
+    print("validate_schema:start")
+
     if not isinstance(schema_map, dict) or not schema_map:
         raise HTTPException(status_code=400, detail="schema must be a non-empty object")
 
@@ -60,6 +63,8 @@ def validate_schema(schema_map: Dict[str, str]) -> None:
                 status_code=400,
                 detail=f"Unsupported type for field '{field_name}': {type_name}"
             )
+
+    print("validate_schema:done")
 
 
 def parse_boolean(value: Any) -> Optional[bool]:
@@ -191,34 +196,50 @@ Schema:
 
 def get_openai_client() -> OpenAI:
     api_key = os.getenv("OPENAI_API_KEY")
+    print("env_key_present:", bool(api_key))
+
     if not api_key:
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not set")
-    return OpenAI(api_key=api_key)
+        raise Exception("OPENAI_API_KEY is not set on the server")
+
+    client = OpenAI(api_key=api_key)
+    print("openai_client_created")
+    return client
 
 
 def call_llm(text: str, schema_map: Dict[str, str]) -> Dict[str, Any]:
+    print("call_llm:start")
     client = get_openai_client()
     prompt = build_prompt(text, schema_map)
+    print("prompt_built")
 
     response = client.chat.completions.create(
-        model="gpt-4.1-mini",
+        model="gpt-4o-mini",
         temperature=0,
         messages=[
             {"role": "system", "content": "Return only strict JSON."},
             {"role": "user", "content": prompt},
         ],
     )
+    print("openai_response_received")
 
-    content = response.choices[0].message.content.strip()
+    content = response.choices[0].message.content
+    print("raw_content_type:", type(content).__name__)
+    print("raw_content_preview:", repr(str(content)[:500]))
+
+    if content is None:
+        raise Exception("Model returned empty content")
+
+    content = content.strip()
 
     if content.startswith("```"):
         content = re.sub(r"^```(?:json)?", "", content).strip()
         content = re.sub(r"```$", "", content).strip()
 
     parsed = json.loads(content)
+    print("json_parsed_successfully")
 
     if not isinstance(parsed, dict):
-        raise HTTPException(status_code=500, detail="LLM did not return a JSON object")
+        raise Exception("LLM did not return a JSON object")
 
     return parsed
 
@@ -238,14 +259,34 @@ def health():
 
 @app.post("/dynamic-extract")
 def dynamic_extract(req: ExtractRequest):
-    schema_map = req.schema_
+    try:
+        print("dynamic_extract:start")
+        schema_map = req.schema_
+        print("schema_keys:", list(schema_map.keys()))
 
-    validate_schema(schema_map)
-    raw_output = call_llm(req.text, schema_map)
+        validate_schema(schema_map)
+        raw_output = call_llm(req.text, schema_map)
 
-    result = {}
-    for field_name, type_name in schema_map.items():
-        raw_value = raw_output.get(field_name, None)
-        result[field_name] = coerce_value(raw_value, type_name)
+        result = {}
+        for field_name, type_name in schema_map.items():
+            raw_value = raw_output.get(field_name, None)
+            result[field_name] = coerce_value(raw_value, type_name)
 
-    return result
+        print("dynamic_extract:success")
+        return result
+
+    except HTTPException as e:
+        print("http_exception:", str(e.detail))
+        raise e
+
+    except Exception as e:
+        trace = traceback.format_exc()
+        print("unhandled_exception:", str(e))
+        print(trace)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": str(e),
+                "trace": trace
+            }
+        )
