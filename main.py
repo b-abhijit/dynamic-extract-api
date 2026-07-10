@@ -435,6 +435,28 @@ def extract_diagnosis(text: str) -> Optional[str]:
     return None
 
 
+def extract_doctor(text: str) -> Optional[str]:
+    patterns = [
+        r'\bdoctor\s*[:\-]\s*(Dr\.\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b',
+        r'\bdr\.\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b',
+        r'\bphysician\s*[:\-]\s*(Dr\.\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b',
+        r'\battending\s+doctor\s*[:\-]\s*(Dr\.\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b',
+        r'\bconsulting\s+doctor\s*[:\-]\s*(Dr\.\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b',
+        r'\bdoctor\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b',
+        r'\bDr\.\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            value = match.group(1) if match.groups() else match.group(0)
+            value = re.sub(r"\s+", " ", value.strip().rstrip(".,:;-"))
+            if value:
+                if not value.lower().startswith("dr") and re.search(r'\bdr\.\b', text, re.IGNORECASE):
+                    return f"Dr. {value}"
+                return value if value.lower().startswith("dr") else f"Dr. {value}"
+    return None
+
+
 def extract_date_value(text: str) -> Optional[str]:
     patterns = [
         r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',
@@ -613,6 +635,8 @@ def generic_extract(field_name: str, field_type: str, text: str) -> Any:
         return extract_person_name_by_label(text, ["customer name", "customer", "client name", "client", "buyer"]) or extract_person_name_generic(text)
     if "patient" in name:
         return extract_patient(text) or extract_person_name_by_label(text, ["patient", "patient name"]) or extract_person_name_generic(text)
+    if "doctor" in name or name == "dr":
+        return extract_doctor(text)
     if "diagnosis" in name or name == "dx" or "impression" in name or "assessment" in name:
         return extract_diagnosis(text)
     if "department" in name or name == "dept":
