@@ -232,16 +232,36 @@ def extract_person_name_generic(text: str) -> Optional[str]:
 
 def extract_money(text: str) -> Optional[float]:
     patterns = [
-        r'Rs\.?\s*([0-9]+(?:\.[0-9]+)?)',
-        r'INR\s*([0-9]+(?:\.[0-9]+)?)',
-        r'\$\s*([0-9]+(?:\.[0-9]+)?)',
-        r'Total:\s*\$?\s*([0-9]+(?:\.[0-9]+)?)',
-        r'amount[:\s]+\$?\s*([0-9]+(?:\.[0-9]+)?)',
+        r'Rs\.?\s*([0-9,]+(?:\.[0-9]+)?)',
+        r'INR\s*([0-9,]+(?:\.[0-9]+)?)',
+        r'\$\s*([0-9,]+(?:\.[0-9]+)?)',
+        r'Total:\s*\$?\s*([0-9,]+(?:\.[0-9]+)?)',
+        r'amount[:\s]+\$?\s*([0-9,]+(?:\.[0-9]+)?)',
     ]
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             return parse_float(match.group(1))
+    return None
+
+
+def extract_salary(text: str) -> Optional[float]:
+    patterns = [
+        r'\bmonthly salary\s*[:\-]\s*Rs\.?\s*([0-9,]+(?:\.[0-9]+)?)\b',
+        r'\bmonthly salary\s*[:\-]\s*INR\s*([0-9,]+(?:\.[0-9]+)?)\b',
+        r'\bmonthly salary\s*[:\-]\s*\$?\s*([0-9,]+(?:\.[0-9]+)?)\b',
+        r'\bsalary\s*[:\-]\s*Rs\.?\s*([0-9,]+(?:\.[0-9]+)?)\b',
+        r'\bsalary\s*[:\-]\s*INR\s*([0-9,]+(?:\.[0-9]+)?)\b',
+        r'\bsalary\s*[:\-]\s*\$?\s*([0-9,]+(?:\.[0-9]+)?)\b',
+        r'\bpay\s*[:\-]\s*\$?\s*([0-9,]+(?:\.[0-9]+)?)\b',
+        r'\bcompensation\s*[:\-]\s*\$?\s*([0-9,]+(?:\.[0-9]+)?)\b',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return parse_float(match.group(1))
+
     return None
 
 
@@ -404,6 +424,9 @@ def generic_extract(field_name: str, field_type: str, text: str) -> Any:
 
     if "department" in name or name == "dept":
         return extract_department(text)
+
+    if "monthly_salary" in name or "salary" in name or "pay" in name or "compensation" in name:
+        return extract_salary(text)
 
     if name.endswith("_name") or name == "name":
         return extract_person_name_by_label(
