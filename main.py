@@ -282,6 +282,24 @@ def extract_power_kw(text: str) -> Optional[float]:
     return None
 
 
+def extract_hours(text: str) -> Optional[float]:
+    patterns = [
+        r'\bhours\s*[:\-]\s*([0-9]+(?:\.[0-9]+)?)\b',
+        r'\bduration\s*[:\-]\s*([0-9]+(?:\.[0-9]+)?)\s*hours?\b',
+        r'\bworked\s*([0-9]+(?:\.[0-9]+)?)\s*hours?\b',
+        r'\bfor\s*([0-9]+(?:\.[0-9]+)?)\s*hours?\b',
+        r'\b([0-9]+(?:\.[0-9]+)?)\s*hours?\b',
+        r'\b([0-9]+(?:\.[0-9]+)?)\s*hrs\b',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return parse_float(match.group(1))
+
+    return None
+
+
 def extract_date_value(text: str) -> Optional[str]:
     patterns = [
         r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',
@@ -421,8 +439,9 @@ def extract_device(text: str) -> Optional[str]:
 
 def extract_quantity(text: str) -> Optional[int]:
     patterns = [
+        r'\bquantity\s*[:\-]\s*(\d+)\b',
+        r'\bcount\s*[:\-]\s*(\d+)\b',
         r'\b(\d+)\s+\w+',
-        r'quantity[:\s]+(\d+)',
     ]
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
@@ -495,6 +514,9 @@ def generic_extract(field_name: str, field_type: str, text: str) -> Any:
 
     if "power_kw" in name or ("power" in name and ftype == "float"):
         return extract_power_kw(text)
+
+    if name == "hours" or "hours" in name or "duration" in name:
+        return extract_hours(text)
 
     if "grade" in name or "level" in name or "band" in name:
         return extract_grade(text)
