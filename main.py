@@ -1,4 +1,4 @@
-import re
+\import re
 from datetime import date
 from typing import Any, Dict, List, Optional
 
@@ -404,6 +404,23 @@ def extract_patient(text: str) -> Optional[str]:
     return None
 
 
+def extract_age(text: str) -> Optional[int]:
+    patterns = [
+        r'\bage\s*[:=\-]?\s*(\d{1,3})\b',
+        r'\bpatient\s*age\s*[:=\-]?\s*(\d{1,3})\b',
+        r'\b(\d{1,3})\s*(?:years?\s*old|yrs?\s*old|y/o)\b',
+        r'\bage\s+is\s+(\d{1,3})\b',
+        r'\b(\d{1,3})\b(?=\s*(?:year|years|yrs|y/o)\b)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            value = parse_integer(match.group(1))
+            if value is not None and 0 <= value <= 130:
+                return value
+    return None
+
+
 def extract_date_value(text: str) -> Optional[str]:
     patterns = [
         r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',
@@ -642,6 +659,9 @@ def generic_extract(field_name: str, field_type: str, text: str) -> Any:
 
     if "threshold" in name:
         return extract_threshold(text)
+
+    if "age" in name:
+        return extract_age(text)
 
     if "grade" in name or "level" in name or "band" in name:
         return extract_grade(text)
