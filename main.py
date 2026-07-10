@@ -282,6 +282,23 @@ def extract_power_kw(text: str) -> Optional[float]:
     return None
 
 
+def extract_energy_kwh(text: str) -> Optional[float]:
+    patterns = [
+        r'\benergy[_\s-]*kwh\s*[:\-]\s*([0-9]+(?:\.[0-9]+)?)\b',
+        r'\benergy\s*[:\-]\s*([0-9]+(?:\.[0-9]+)?)\s*k\s*w\s*h\b',
+        r'\bconsumption\s*[:\-]\s*([0-9]+(?:\.[0-9]+)?)\s*k\s*w\s*h\b',
+        r'\busage\s*[:\-]\s*([0-9]+(?:\.[0-9]+)?)\s*k\s*w\s*h\b',
+        r'\b([0-9]+(?:\.[0-9]+)?)\s*k\s*w\s*h\b',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return parse_float(match.group(1))
+
+    return None
+
+
 def extract_hours(text: str) -> Optional[float]:
     patterns = [
         r'\bhours\s*[:\-]\s*([0-9]+(?:\.[0-9]+)?)\b',
@@ -511,6 +528,9 @@ def generic_extract(field_name: str, field_type: str, text: str) -> Any:
 
     if "monthly_salary" in name or "salary" in name or "pay" in name or "compensation" in name:
         return extract_salary(text)
+
+    if "energy_kwh" in name or ("energy" in name and ftype == "float"):
+        return extract_energy_kwh(text)
 
     if "power_kw" in name or ("power" in name and ftype == "float"):
         return extract_power_kw(text)
