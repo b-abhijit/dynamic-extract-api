@@ -375,6 +375,33 @@ def extract_grade(text: str) -> Optional[str]:
     return None
 
 
+def extract_device(text: str) -> Optional[str]:
+    patterns = [
+        r'\bdevice\s*[:\-]\s*([A-Za-z][A-Za-z0-9 /_-]*\d+)\b',
+        r'\basset\s*[:\-]\s*([A-Za-z][A-Za-z0-9 /_-]*\d+)\b',
+        r'\bequipment\s*[:\-]\s*([A-Za-z][A-Za-z0-9 /_-]*\d+)\b',
+        r'\bmachine\s*[:\-]\s*([A-Za-z][A-Za-z0-9 /_-]*\d+)\b',
+        r'\bdevice\s+([A-Za-z][A-Za-z0-9 /_-]*\d+)\b',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group(1).strip().rstrip(".,:;-")
+
+    fallback_patterns = [
+        r'\b([A-Z]{2,}(?:\s+[A-Za-z0-9]+)*\s+\d+)\b',
+        r'\b([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z0-9]+)*\s+\d+)\b',
+    ]
+
+    for pattern in fallback_patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1).strip().rstrip(".,:;-")
+
+    return None
+
+
 def extract_quantity(text: str) -> Optional[int]:
     patterns = [
         r'\b(\d+)\s+\w+',
@@ -451,6 +478,9 @@ def generic_extract(field_name: str, field_type: str, text: str) -> Any:
 
     if "grade" in name or "level" in name or "band" in name:
         return extract_grade(text)
+
+    if "device" in name or "asset" in name or "equipment" in name or "machine" in name:
+        return extract_device(text)
 
     if name.endswith("_name") or name == "name":
         return extract_person_name_by_label(
