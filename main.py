@@ -39,6 +39,20 @@ SUPPORTED_TYPES = {
 }
 
 
+INVALID_NAME_VALUES = {
+    "employee",
+    "customer",
+    "name",
+    "client",
+    "staff",
+    "buyer",
+    "seller",
+    "person",
+    "employee name",
+    "customer name",
+}
+
+
 def normalize_type(type_name: str) -> str:
     return type_name.strip().lower()
 
@@ -156,6 +170,66 @@ def coerce_value(value: Any, type_name: str) -> Any:
     return None
 
 
+def clean_extracted_name(name: str) -> str:
+    return re.sub(r"\s+", " ", name).strip().rstrip(".,:;-")
+
+
+def is_valid_person_name(name: str) -> bool:
+    cleaned = clean_extracted_name(name)
+    if not cleaned:
+        return False
+    if cleaned.lower() in INVALID_NAME_VALUES:
+        return False
+    if len(cleaned.split()) < 2:
+        return False
+    return True
+
+
+def extract_person_name_by_label(text: str, labels: List[str]) -> Optional[str]:
+    for label in labels:
+        pattern = rf'\b{label}\s*[:\-]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b'
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            candidate = clean_extracted_name(match.group(1))
+            if is_valid_person_name(candidate):
+                return candidate
+
+    return None
+
+
+def extract_person_name_generic(text: str) -> Optional[str]:
+    patterns = [
+        r'\bname\s*[:\-]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b',
+        r'\bemployee\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b',
+        r'\bcustomer\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b',
+        r'\bclient\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b',
+        r'\bbuyer\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            candidate = clean_extracted_name(match.group(1))
+            if is_valid_person_name(candidate):
+                return candidate
+
+    matches = re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b', text)
+    blacklist = {
+        "Employee Name",
+        "Customer Name",
+        "Order Date",
+        "Total Amount",
+        "Purchase Date",
+    }
+
+    for candidate in matches:
+        cleaned = clean_extracted_name(candidate)
+        if cleaned not in blacklist and is_valid_person_name(cleaned):
+            return cleaned
+
+    return None
+
+
 def extract_money(text: str) -> Optional[float]:
     patterns = [
         r'Rs\.?\s*([0-9]+(?:\.[0-9]+)?)',
@@ -235,13 +309,6 @@ def extract_quantity(text: str) -> Optional[int]:
     return None
 
 
-def extract_name(text: str) -> Optional[str]:
-    first_word = re.match(r'^\s*([A-Z][a-z]+)\b', text)
-    if first_word:
-        return first_word.group(1)
-    return None
-
-
 def extract_item(text: str) -> Optional[str]:
     patterns = [
         r'bought\s+\d+\s+([A-Za-z ]+?)\s+for',
@@ -286,6 +353,24 @@ def generic_extract(field_name: str, field_type: str, text: str) -> Any:
     name = field_name.lower()
     ftype = normalize_type(field_type)
 
+    if "employee_name" in name:
+        return extract_person_name_by_label(
+            text,
+            ["employee name", "employee", "staff name", "staff"]
+        ) or extract_person_name_generic(text)
+
+    if "customer_name" in name:
+        return extract_person_name_by_label(
+            text,
+            ["customer name", "customer", "client name", "client", "buyer"]
+        ) or extract_person_name_generic(text)
+
+    if name.endswith("_name") or name == "name":
+        return extract_person_name_by_label(
+            text,
+            ["name", "full name"]
+        ) or extract_person_name_generic(text)
+
     if "order" in name and "id" in name:
         return extract_order_id(text)
 
@@ -297,9 +382,6 @@ def generic_extract(field_name: str, field_type: str, text: str) -> Any:
 
     if "quantity" in name or "count" in name:
         return extract_quantity(text)
-
-    if "customer" in name or "name" in name:
-        return extract_name(text)
 
     if "store" in name or "shop" in name:
         return extract_store(text)
