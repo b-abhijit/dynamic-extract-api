@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import traceback
 from datetime import date
 from typing import Any, Dict, List, Optional
 
@@ -9,7 +8,7 @@ from dateutil import parser as date_parser
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 app = FastAPI(title="Dynamic Extract API")
@@ -26,7 +25,10 @@ app.add_middleware(
 
 class ExtractRequest(BaseModel):
     text: str
-    schema: Dict[str, str]
+    schema_: Dict[str, str] = Field(..., alias="schema")
+
+    class Config:
+        allow_population_by_field_name = True
 
 
 SUPPORTED_TYPES = {
@@ -44,15 +46,16 @@ def normalize_type(type_name: str) -> str:
     return type_name.strip().lower()
 
 
-def validate_schema(schema: Dict[str, str]) -> None:
-    if not isinstance(schema, dict) or not schema:
+def validate_schema(schema_map: Dict[str, str]) -> None:
+    if not isinstance(schema_map, dict) or not schema_map:
         raise HTTPException(status_code=400, detail="schema must be a non-empty object")
 
-    for field_name, type_name in schema.items():
+    for field_name, type_name in schema_map.items():
         if not isinstance(field_name, str) or not field_name.strip():
             raise HTTPException(status_code=400, detail="schema keys must be non-empty strings")
 
-        if normalize_type(type_name) not in SUPPORTED_TYPES:
+        normalized = normalize_type(type_name)
+        if normalized not in SUPPORTED_TYPES:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unsupported type for field '{field_name}': {type_name}"
@@ -64,6 +67,7 @@ def parse_boolean(value: Any) -> Optional[bool]:
         return None
     if isinstance(value, bool):
         return value
+
     s = str(value).strip().lower()
     if s in {"true", "yes", "1"}:
         return True
@@ -79,6 +83,7 @@ def parse_integer(value: Any) -> Optional[int]:
         return value
     if isinstance(value, float):
         return int(value)
+
     s = str(value).replace(",", "").strip()
     match = re.search(r"-?\d+", s)
     return int(match.group()) if match else None
@@ -89,6 +94,7 @@ def parse_float(value: Any) -> Optional[float]:
         return None
     if isinstance(value, (int, float)):
         return float(value)
+
     s = str(value).replace(",", "").strip()
     match = re.search(r"-?\d+(?:\.\d+)?", s)
     return float(match.group()) if match else None
@@ -99,6 +105,7 @@ def parse_date(value: Any) -> Optional[str]:
         return None
     if isinstance(value, date):
         return value.isoformat()
+
     try:
         dt = date_parser.parse(str(value), dayfirst=True, fuzzy=True)
         return dt.date().isoformat()
@@ -117,6 +124,7 @@ def parse_array_string(value: Any) -> Optional[List[str]]:
 def parse_array_integer(value: Any) -> Optional[List[int]]:
     if value is None:
         return None
+
     if isinstance(value, list):
         result = []
         for item in value:
@@ -124,33 +132,35 @@ def parse_array_integer(value: Any) -> Optional[List[int]]:
             if parsed is not None:
                 result.append(parsed)
         return result if result else None
+
     parsed = parse_integer(value)
     return [parsed] if parsed is not None else None
 
 
 def coerce_value(value: Any, type_name: str) -> Any:
-    t = normalize_type(type_name)
+    normalized = normalize_type(type_name)
 
     if value is None:
         return None
-    if t == "string":
+    if normalized == "string":
         return str(value)
-    if t == "integer":
+    if normalized == "integer":
         return parse_integer(value)
-    if t == "float":
+    if normalized == "float":
         return parse_float(value)
-    if t == "boolean":
+    if normalized == "boolean":
         return parse_boolean(value)
-    if t == "date":
+    if normalized == "date":
         return parse_date(value)
-    if t == "array[string]":
+    if normalized == "array[string]":
         return parse_array_string(value)
-    if t == "array[integer]":
+    if normalized == "array[integer]":
         return parse_array_integer(value)
+
     return None
 
 
-def build_prompt(text: str, schema: Dict[str, str]) -> str:
+def build_prompt(text: str, schema_map: Dict[str, str]) -> str:
     return f"""
 You are a strict information extraction engine.
 
@@ -175,20 +185,20 @@ Text:
 {text}
 
 Schema:
-{json.dumps(schema, indent=2)}
+{json.dumps(schema_map, indent=2)}
 """.strip()
 
 
 def get_openai_client() -> OpenAI:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise Exception("OPENAI_API_KEY is not set on the server")
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not set")
     return OpenAI(api_key=api_key)
 
 
-def call_llm(text: str, schema: Dict[str, str]) -> Dict[str, Any]:
+def call_llm(text: str, schema_map: Dict[str, str]) -> Dict[str, Any]:
     client = get_openai_client()
-    prompt = build_prompt(text, schema)
+    prompt = build_prompt(text, schema_map)
 
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
@@ -208,7 +218,7 @@ def call_llm(text: str, schema: Dict[str, str]) -> Dict[str, Any]:
     parsed = json.loads(content)
 
     if not isinstance(parsed, dict):
-        raise Exception("LLM did not return a JSON object")
+        raise HTTPException(status_code=500, detail="LLM did not return a JSON object")
 
     return parsed
 
@@ -228,26 +238,14 @@ def health():
 
 @app.post("/dynamic-extract")
 def dynamic_extract(req: ExtractRequest):
-    try:
-        validate_schema(req.schema)
-        raw_output = call_llm(req.text, req.schema)
+    schema_map = req.schema_
 
-        result = {}
-        for field_name, type_name in req.schema.items():
-            raw_value = raw_output.get(field_name, None)
-            result[field_name] = coerce_value(raw_value, type_name)
+    validate_schema(schema_map)
+    raw_output = call_llm(req.text, schema_map)
 
-        return result
+    result = {}
+    for field_name, type_name in schema_map.items():
+        raw_value = raw_output.get(field_name, None)
+        result[field_name] = coerce_value(raw_value, type_name)
 
-    except HTTPException as e:
-        raise e
-
-    except Exception as e:
-        error_trace = traceback.format_exc()
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": str(e),
-                "trace": error_trace
-            }
-        )
+    return result
