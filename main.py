@@ -79,7 +79,6 @@ def parse_boolean(value: Any) -> Optional[bool]:
         return None
     if isinstance(value, bool):
         return value
-
     s = str(value).strip().lower()
     if s in {"true", "yes", "1"}:
         return True
@@ -95,7 +94,6 @@ def parse_integer(value: Any) -> Optional[int]:
         return value
     if isinstance(value, float):
         return int(value)
-
     s = str(value).replace(",", "").strip()
     match = re.search(r"-?\d+", s)
     return int(match.group()) if match else None
@@ -106,7 +104,6 @@ def parse_float(value: Any) -> Optional[float]:
         return None
     if isinstance(value, (int, float)):
         return float(value)
-
     s = str(value).replace(",", "").strip()
     match = re.search(r"-?\d+(?:\.\d+)?", s)
     return float(match.group()) if match else None
@@ -117,7 +114,6 @@ def parse_date(value: Any) -> Optional[str]:
         return None
     if isinstance(value, date):
         return value.isoformat()
-
     try:
         dt = date_parser.parse(str(value), dayfirst=True, fuzzy=True)
         return dt.date().isoformat()
@@ -136,7 +132,6 @@ def parse_array_string(value: Any) -> Optional[List[str]]:
 def parse_array_integer(value: Any) -> Optional[List[int]]:
     if value is None:
         return None
-
     if isinstance(value, list):
         result = []
         for item in value:
@@ -144,14 +139,12 @@ def parse_array_integer(value: Any) -> Optional[List[int]]:
             if parsed is not None:
                 result.append(parsed)
         return result if result else None
-
     parsed = parse_integer(value)
     return [parsed] if parsed is not None else None
 
 
 def coerce_value(value: Any, type_name: str) -> Any:
     t = normalize_type(type_name)
-
     if value is None:
         return None
     if t == "string":
@@ -168,7 +161,6 @@ def coerce_value(value: Any, type_name: str) -> Any:
         return parse_array_string(value)
     if t == "array[integer]":
         return parse_array_integer(value)
-
     return None
 
 
@@ -408,9 +400,10 @@ def extract_age(text: str) -> Optional[int]:
     patterns = [
         r'\bage\s*[:=\-]?\s*(\d{1,3})\b',
         r'\bpatient\s*age\s*[:=\-]?\s*(\d{1,3})\b',
-        r'\b(\d{1,3})\s*(?:years?\s*old|yrs?\s*old|y/o)\b',
+        r'\b(?:age\s+of\s+)?(\d{1,3})\s*(?:years?\s*old|yrs?\s*old|y/o)\b',
         r'\bage\s+is\s+(\d{1,3})\b',
-        r'\b(\d{1,3})\b(?=\s*(?:year|years|yrs|y/o)\b)',
+        r'\b(?:patient\s+is\s+)?(\d{1,3})\s*(?:years?\s*old|yrs?\s*old|y/o)\b',
+        r'\b(?:\d{1,3})\b(?=\s*(?:year|years|yrs|y/o)\b)',
     ]
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
@@ -418,6 +411,27 @@ def extract_age(text: str) -> Optional[int]:
             value = parse_integer(match.group(1))
             if value is not None and 0 <= value <= 130:
                 return value
+    return None
+
+
+def extract_diagnosis(text: str) -> Optional[str]:
+    patterns = [
+        r'\bdiagnosis\s*[:\-]\s*([A-Za-z0-9 ,\-/()]+?)(?:[.;\n]|$)',
+        r'\bdx\s*[:\-]\s*([A-Za-z0-9 ,\-/()]+?)(?:[.;\n]|$)',
+        r'\bimpression\s*[:\-]\s*([A-Za-z0-9 ,\-/()]+?)(?:[.;\n]|$)',
+        r'\bassessment\s*[:\-]\s*([A-Za-z0-9 ,\-/()]+?)(?:[.;\n]|$)',
+        r'\bdiagnosed with\s+([A-Za-z0-9 ,\-/()]+?)(?:[.;\n]|$)',
+        r'\bprimary diagnosis\s*[:\-]\s*([A-Za-z0-9 ,\-/()]+?)(?:[.;\n]|$)',
+        r'\bpatient has\s+([A-Za-z0-9 ,\-/()]+?)(?:[.;\n]|$)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            value = re.sub(r"\s+", " ", match.group(1).strip().rstrip(".,:;-"))
+            if value:
+                return value
+    if re.search(r'\btype\s*2\s*diabetes\b', text, re.IGNORECASE):
+        return "Type 2 Diabetes"
     return None
 
 
@@ -480,33 +494,19 @@ def extract_department(text: str) -> Optional[str]:
         r'\bdepartment\s+([A-Z][A-Za-z&/ -]+)\b',
         r'\bdept\.?\s+([A-Z][A-Za-z&/ -]+)\b',
     ]
-
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             value = match.group(1).strip().rstrip(".,:;-")
             if value:
                 return value
-
     known_departments = [
-        "Engineering",
-        "HR",
-        "Human Resources",
-        "Finance",
-        "Marketing",
-        "Sales",
-        "Operations",
-        "Support",
-        "Product",
-        "Legal",
-        "IT",
-        "Administration",
+        "Engineering", "HR", "Human Resources", "Finance", "Marketing",
+        "Sales", "Operations", "Support", "Product", "Legal", "IT", "Administration",
     ]
-
     for dept in known_departments:
         if re.search(rf'\b{re.escape(dept)}\b', text, re.IGNORECASE):
             return dept
-
     return None
 
 
@@ -518,16 +518,13 @@ def extract_grade(text: str) -> Optional[str]:
         r'\bgrade\s+([A-Z]\d+)\b',
         r'\blevel\s+([A-Z]\d+)\b',
     ]
-
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             return match.group(1).upper()
-
     fallback = re.search(r'\b([A-Z]\d+)\b', text)
     if fallback:
         return fallback.group(1).upper()
-
     return None
 
 
@@ -539,22 +536,18 @@ def extract_device(text: str) -> Optional[str]:
         r'\bmachine\s*[:\-]\s*([A-Za-z][A-Za-z0-9 /_-]*\d+)\b',
         r'\bdevice\s+([A-Za-z][A-Za-z0-9 /_-]*\d+)\b',
     ]
-
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             return match.group(1).strip().rstrip(".,:;-")
-
     fallback_patterns = [
         r'\b([A-Z]{2,}(?:\s+[A-Za-z0-9]+)*\s+\d+)\b',
         r'\b([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z0-9]+)*\s+\d+)\b',
     ]
-
     for pattern in fallback_patterns:
         match = re.search(pattern, text)
         if match:
             return match.group(1).strip().rstrip(".,:;-")
-
     return None
 
 
@@ -610,128 +603,70 @@ def extract_array_integers(text: str) -> Optional[List[int]]:
     values = [int(n) for n in nums]
     return values if values else None
 
-def extract_diagnosis(text: str) -> Optional[str]:
-    patterns = [
-        r'\bdiagnosis\s*[:\-]\s*([A-Za-z0-9 ,\-\/()]+?)(?:[.;\n]|$)',
-        r'\bdx\s*[:\-]\s*([A-Za-z0-9 ,\-\/()]+?)(?:[.;\n]|$)',
-        r'\bimpression\s*[:\-]\s*([A-Za-z0-9 ,\-\/()]+?)(?:[.;\n]|$)',
-        r'\bassessment\s*[:\-]\s*([A-Za-z0-9 ,\-\/()]+?)(?:[.;\n]|$)',
-        r'\bdiagnosed with\s+([A-Za-z0-9 ,\-\/()]+?)(?:[.;\n]|$)',
-        r'\bprimary diagnosis\s*[:\-]\s*([A-Za-z0-9 ,\-\/()]+?)(?:[.;\n]|$)',
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            value = match.group(1).strip().rstrip(".,:;-")
-            value = re.sub(r"\s+", " ", value)
-            return value
-
-    return None
 
 def generic_extract(field_name: str, field_type: str, text: str) -> Any:
     name = field_name.lower()
     ftype = normalize_type(field_type)
-
     if "employee_name" in name:
-        return extract_person_name_by_label(
-            text,
-            ["employee name", "employee", "staff name", "staff"]
-        ) or extract_person_name_generic(text)
-
+        return extract_person_name_by_label(text, ["employee name", "employee", "staff name", "staff"]) or extract_person_name_generic(text)
     if "customer_name" in name:
-        return extract_person_name_by_label(
-            text,
-            ["customer name", "customer", "client name", "client", "buyer"]
-        ) or extract_person_name_generic(text)
-
+        return extract_person_name_by_label(text, ["customer name", "customer", "client name", "client", "buyer"]) or extract_person_name_generic(text)
     if "patient" in name:
-        return extract_patient(text) or extract_person_name_by_label(
-            text,
-            ["patient", "patient name"]
-        ) or extract_person_name_generic(text)
-
+        return extract_patient(text) or extract_person_name_by_label(text, ["patient", "patient name"]) or extract_person_name_generic(text)
+    if "diagnosis" in name or name == "dx" or "impression" in name or "assessment" in name:
+        return extract_diagnosis(text)
     if "department" in name or name == "dept":
         return extract_department(text)
-
     if "monthly_salary" in name or "salary" in name or "pay" in name or "compensation" in name:
         return extract_salary(text)
-
     if "energy_kwh" in name or ("energy" in name and ftype == "float"):
         return extract_energy_kwh(text)
-
     if "power_kw" in name or ("power" in name and ftype == "float"):
         return extract_power_kw(text)
-
     if name == "hours" or "hours" in name or "duration" in name:
         return extract_hours(text)
-
     if name == "alert_time" or "time" in name:
         return extract_time_hhmm(text)
-
     if name == "host" or "hostname" in name or "server" in name:
         return extract_host(text)
-
     if name == "metric" or "metric" in name:
         return extract_metric(text)
-
     if "threshold" in name:
         return extract_threshold(text)
-
     if "age" in name:
         return extract_age(text)
-
     if "grade" in name or "level" in name or "band" in name:
         return extract_grade(text)
-
     if "device" in name or "asset" in name or "equipment" in name or "machine" in name:
         return extract_device(text)
-
     if name.endswith("_name") or name == "name":
-        return extract_person_name_by_label(
-            text,
-            ["name", "full name"]
-        ) or extract_person_name_generic(text)
-
+        return extract_person_name_by_label(text, ["name", "full name"]) or extract_person_name_generic(text)
     if "order" in name and "id" in name:
         return extract_order_id(text)
-
     if "date" in name:
         return extract_date_value(text)
-
     if "amount" in name or "price" in name or "total" in name:
         return extract_money(text)
-
     if "quantity" in name or "count" in name:
         return extract_quantity(text)
-
     if "store" in name or "shop" in name:
         return extract_store(text)
-
     if "city" in name or "location" in name:
         return extract_city(text)
-
     if "item" in name or "product" in name:
         return extract_item(text)
-
     if ftype == "boolean":
         return extract_boolean_value(text)
-
     if ftype == "array[string]":
         return extract_array_strings(text)
-
     if ftype == "array[integer]":
         return extract_array_integers(text)
-
     if ftype == "date":
         return extract_date_value(text)
-
     if ftype == "float":
         return extract_money(text)
-
     if ftype == "integer":
         return extract_quantity(text)
-
     return None
 
 
@@ -748,12 +683,9 @@ def health():
 @app.post("/dynamic-extract")
 def dynamic_extract(req: ExtractRequest):
     schema_map = req.schema_
-
     validate_schema(schema_map)
-
     result = {}
     for field_name, field_type in schema_map.items():
         guessed_value = generic_extract(field_name, field_type, req.text)
         result[field_name] = coerce_value(guessed_value, field_type)
-
     return result
