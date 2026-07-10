@@ -1,18 +1,14 @@
-import json
-import os
 import re
-import traceback
 from datetime import date
 from typing import Any, Dict, List, Optional
 
 from dateutil import parser as date_parser
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from openai import OpenAI
 from pydantic import BaseModel, Field
 
 
-app = FastAPI(title="Dynamic Extract API")
+app = FastAPI(title="Dynamic Extract API - No OpenAI")
 
 
 app.add_middleware(
@@ -48,8 +44,6 @@ def normalize_type(type_name: str) -> str:
 
 
 def validate_schema(schema_map: Dict[str, str]) -> None:
-    print("validate_schema:start")
-
     if not isinstance(schema_map, dict) or not schema_map:
         raise HTTPException(status_code=400, detail="schema must be a non-empty object")
 
@@ -57,14 +51,11 @@ def validate_schema(schema_map: Dict[str, str]) -> None:
         if not isinstance(field_name, str) or not field_name.strip():
             raise HTTPException(status_code=400, detail="schema keys must be non-empty strings")
 
-        normalized = normalize_type(type_name)
-        if normalized not in SUPPORTED_TYPES:
+        if normalize_type(type_name) not in SUPPORTED_TYPES:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unsupported type for field '{field_name}': {type_name}"
             )
-
-    print("validate_schema:done")
 
 
 def parse_boolean(value: Any) -> Optional[bool]:
@@ -143,150 +134,222 @@ def parse_array_integer(value: Any) -> Optional[List[int]]:
 
 
 def coerce_value(value: Any, type_name: str) -> Any:
-    normalized = normalize_type(type_name)
+    t = normalize_type(type_name)
 
     if value is None:
         return None
-    if normalized == "string":
+    if t == "string":
         return str(value)
-    if normalized == "integer":
+    if t == "integer":
         return parse_integer(value)
-    if normalized == "float":
+    if t == "float":
         return parse_float(value)
-    if normalized == "boolean":
+    if t == "boolean":
         return parse_boolean(value)
-    if normalized == "date":
+    if t == "date":
         return parse_date(value)
-    if normalized == "array[string]":
+    if t == "array[string]":
         return parse_array_string(value)
-    if normalized == "array[integer]":
+    if t == "array[integer]":
         return parse_array_integer(value)
 
     return None
 
 
-def build_prompt(text: str, schema_map: Dict[str, str]) -> str:
-    return f"""
-You are a strict information extraction engine.
-
-Extract data from the text according to the schema.
-
-Rules:
-1. Return ONLY a valid JSON object.
-2. Return EXACTLY the same keys as the schema.
-3. Do NOT add extra keys.
-4. If a value cannot be found confidently, return null.
-5. Required output types:
-   - string -> JSON string
-   - integer -> JSON integer
-   - float -> JSON number
-   - boolean -> true or false
-   - date -> ISO format YYYY-MM-DD
-   - array[string] -> JSON array of strings
-   - array[integer] -> JSON array of integers
-6. No explanation. No markdown. No code fences.
-
-Text:
-{text}
-
-Schema:
-{json.dumps(schema_map, indent=2)}
-""".strip()
+def extract_money(text: str) -> Optional[float]:
+    patterns = [
+        r'Rs\.?\s*([0-9]+(?:\.[0-9]+)?)',
+        r'INR\s*([0-9]+(?:\.[0-9]+)?)',
+        r'\$\s*([0-9]+(?:\.[0-9]+)?)',
+        r'Total:\s*\$?\s*([0-9]+(?:\.[0-9]+)?)',
+        r'amount[:\s]+\$?\s*([0-9]+(?:\.[0-9]+)?)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return parse_float(match.group(1))
+    return None
 
 
-def get_openai_client() -> OpenAI:
-    api_key = os.getenv("OPENAI_API_KEY")
-    print("env_key_present:", bool(api_key))
+def extract_date_value(text: str) -> Optional[str]:
+    patterns = [
+        r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',
+        r'\b\d{4}-\d{2}-\d{2}\b',
+        r'\b\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+\s+\d{4}\b',
+        r'\b[A-Za-z]+\s+\d{1,2},\s*\d{4}\b',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return parse_date(match.group(0))
+    return None
 
-    if not api_key:
-        raise Exception("OPENAI_API_KEY is not set on the server")
 
-    client = OpenAI(api_key=api_key)
-    print("openai_client_created")
-    return client
+def extract_order_id(text: str) -> Optional[str]:
+    patterns = [
+        r'\b(?:Order\s*#?\s*)([A-Za-z0-9-]+)\b',
+        r'\b(ORD-[A-Za-z0-9-]+)\b',
+        r'\b([A-Z]{2,}-\d{3,})\b',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return None
 
 
-def call_llm(text: str, schema_map: Dict[str, str]) -> Dict[str, Any]:
-    print("call_llm:start")
-    client = get_openai_client()
-    prompt = build_prompt(text, schema_map)
-    print("prompt_built")
+def extract_store(text: str) -> Optional[str]:
+    patterns = [
+        r'from\s+([A-Z][A-Za-z0-9& ]+)',
+        r'store[:\s]+([A-Z][A-Za-z0-9& ]+)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1).strip().rstrip(".")
+    return None
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        temperature=0,
-        messages=[
-            {"role": "system", "content": "Return only strict JSON."},
-            {"role": "user", "content": prompt},
-        ],
-    )
-    print("openai_response_received")
 
-    content = response.choices[0].message.content
-    print("raw_content_type:", type(content).__name__)
-    print("raw_content_preview:", repr(str(content)[:500]))
+def extract_city(text: str) -> Optional[str]:
+    patterns = [
+        r'Shipped to:\s*([A-Z][A-Za-z ]+)',
+        r'city[:\s]+([A-Z][A-Za-z ]+)',
+        r'in\s+([A-Z][A-Za-z ]+)'
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1).strip().rstrip(".")
+    return None
 
-    if content is None:
-        raise Exception("Model returned empty content")
 
-    content = content.strip()
+def extract_quantity(text: str) -> Optional[int]:
+    patterns = [
+        r'\b(\d+)\s+\w+',
+        r'quantity[:\s]+(\d+)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return parse_integer(match.group(1))
+    return None
 
-    if content.startswith("```"):
-        content = re.sub(r"^```(?:json)?", "", content).strip()
-        content = re.sub(r"```$", "", content).strip()
 
-    parsed = json.loads(content)
-    print("json_parsed_successfully")
+def extract_name(text: str) -> Optional[str]:
+    first_word = re.match(r'^\s*([A-Z][a-z]+)\b', text)
+    if first_word:
+        return first_word.group(1)
+    return None
 
-    if not isinstance(parsed, dict):
-        raise Exception("LLM did not return a JSON object")
 
-    return parsed
+def extract_item(text: str) -> Optional[str]:
+    patterns = [
+        r'bought\s+\d+\s+([A-Za-z ]+?)\s+for',
+        r'Items:\s*(.+?)\.',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def extract_boolean_value(text: str) -> Optional[bool]:
+    if re.search(r'\b(true|yes)\b', text, re.IGNORECASE):
+        return True
+    if re.search(r'\b(false|no)\b', text, re.IGNORECASE):
+        return False
+    return None
+
+
+def extract_array_strings(text: str) -> Optional[List[str]]:
+    if "Items:" in text:
+        after = text.split("Items:", 1)[1]
+        after = after.split(".", 1)[0]
+        parts = [p.strip() for p in after.split(" and ")]
+        cleaned = []
+        for part in parts:
+            cleaned_part = re.sub(r'^\d+\s+', '', part).strip()
+            if cleaned_part:
+                cleaned.append(cleaned_part)
+        return cleaned if cleaned else None
+    return None
+
+
+def extract_array_integers(text: str) -> Optional[List[int]]:
+    nums = re.findall(r'\b\d+\b', text)
+    values = [int(n) for n in nums]
+    return values if values else None
+
+
+def generic_extract(field_name: str, field_type: str, text: str) -> Any:
+    name = field_name.lower()
+    ftype = normalize_type(field_type)
+
+    if "order" in name and "id" in name:
+        return extract_order_id(text)
+
+    if "date" in name:
+        return extract_date_value(text)
+
+    if "amount" in name or "price" in name or "total" in name:
+        return extract_money(text)
+
+    if "quantity" in name or "count" in name:
+        return extract_quantity(text)
+
+    if "customer" in name or "name" in name:
+        return extract_name(text)
+
+    if "store" in name or "shop" in name:
+        return extract_store(text)
+
+    if "city" in name or "location" in name:
+        return extract_city(text)
+
+    if "item" in name or "product" in name:
+        return extract_item(text)
+
+    if ftype == "boolean":
+        return extract_boolean_value(text)
+
+    if ftype == "array[string]":
+        return extract_array_strings(text)
+
+    if ftype == "array[integer]":
+        return extract_array_integers(text)
+
+    if ftype == "date":
+        return extract_date_value(text)
+
+    if ftype == "float":
+        return extract_money(text)
+
+    if ftype == "integer":
+        return extract_quantity(text)
+
+    return None
 
 
 @app.get("/")
 def root():
-    return {"ok": True, "message": "Dynamic extract API is running"}
+    return {"ok": True, "message": "Dynamic extract API is running without OpenAI"}
 
 
 @app.get("/health")
 def health():
-    return {
-        "ok": True,
-        "openai_key_present": bool(os.getenv("OPENAI_API_KEY"))
-    }
+    return {"ok": True, "mode": "rule-based"}
 
 
 @app.post("/dynamic-extract")
 def dynamic_extract(req: ExtractRequest):
-    try:
-        print("dynamic_extract:start")
-        schema_map = req.schema_
-        print("schema_keys:", list(schema_map.keys()))
+    schema_map = req.schema_
 
-        validate_schema(schema_map)
-        raw_output = call_llm(req.text, schema_map)
+    validate_schema(schema_map)
 
-        result = {}
-        for field_name, type_name in schema_map.items():
-            raw_value = raw_output.get(field_name, None)
-            result[field_name] = coerce_value(raw_value, type_name)
+    result = {}
+    for field_name, field_type in schema_map.items():
+        guessed_value = generic_extract(field_name, field_type, req.text)
+        result[field_name] = coerce_value(guessed_value, field_type)
 
-        print("dynamic_extract:success")
-        return result
-
-    except HTTPException as e:
-        print("http_exception:", str(e.detail))
-        raise e
-
-    except Exception as e:
-        trace = traceback.format_exc()
-        print("unhandled_exception:", str(e))
-        print(trace)
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": str(e),
-                "trace": trace
-            }
-        )
+    return result
