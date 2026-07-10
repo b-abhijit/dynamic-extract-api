@@ -193,6 +193,7 @@ def extract_person_name_by_label(text: str, labels: List[str]) -> Optional[str]:
             candidate = clean_extracted_name(match.group(1))
             if is_valid_person_name(candidate):
                 return candidate
+
     return None
 
 
@@ -352,6 +353,19 @@ def extract_threshold(text: str) -> Optional[float]:
         if match:
             return parse_float(match.group(1))
 
+    return None
+
+
+def extract_time_hhmm(text: str) -> Optional[str]:
+    patterns = [
+        r'\balert[_\s-]*time\s*[:=\-]?\s*([0-2]?\d:[0-5]\d)\b',
+        r'\btime\s*[:=\-]?\s*([0-2]?\d:[0-5]\d)\b',
+        r'\b([0-2]?\d:[0-5]\d)\b',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group(1)
     return None
 
 
@@ -575,6 +589,9 @@ def generic_extract(field_name: str, field_type: str, text: str) -> Any:
 
     if name == "hours" or "hours" in name or "duration" in name:
         return extract_hours(text)
+
+    if name == "alert_time" or "time" in name:
+        return extract_time_hhmm(text)
 
     if name == "metric" or "metric" in name:
         return extract_metric(text)
