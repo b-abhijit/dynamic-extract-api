@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import traceback
 from datetime import date
 from typing import Any, Dict, List, Optional
 
@@ -51,8 +52,7 @@ def validate_schema(schema: Dict[str, str]) -> None:
         if not isinstance(field_name, str) or not field_name.strip():
             raise HTTPException(status_code=400, detail="schema keys must be non-empty strings")
 
-        normalized = normalize_type(type_name)
-        if normalized not in SUPPORTED_TYPES:
+        if normalize_type(type_name) not in SUPPORTED_TYPES:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unsupported type for field '{field_name}': {type_name}"
@@ -62,72 +62,43 @@ def validate_schema(schema: Dict[str, str]) -> None:
 def parse_boolean(value: Any) -> Optional[bool]:
     if value is None:
         return None
-
     if isinstance(value, bool):
         return value
-
     s = str(value).strip().lower()
-
     if s in {"true", "yes", "1"}:
         return True
     if s in {"false", "no", "0"}:
         return False
-
     return None
 
 
 def parse_integer(value: Any) -> Optional[int]:
-    if value is None:
+    if value is None or isinstance(value, bool):
         return None
-
-    if isinstance(value, bool):
-        return None
-
     if isinstance(value, int):
         return value
-
     if isinstance(value, float):
         return int(value)
-
     s = str(value).replace(",", "").strip()
     match = re.search(r"-?\d+", s)
-    if match:
-        try:
-            return int(match.group())
-        except Exception:
-            return None
-
-    return None
+    return int(match.group()) if match else None
 
 
 def parse_float(value: Any) -> Optional[float]:
-    if value is None:
+    if value is None or isinstance(value, bool):
         return None
-
-    if isinstance(value, bool):
-        return None
-
     if isinstance(value, (int, float)):
         return float(value)
-
     s = str(value).replace(",", "").strip()
     match = re.search(r"-?\d+(?:\.\d+)?", s)
-    if match:
-        try:
-            return float(match.group())
-        except Exception:
-            return None
-
-    return None
+    return float(match.group()) if match else None
 
 
 def parse_date(value: Any) -> Optional[str]:
     if value is None:
         return None
-
     if isinstance(value, date):
         return value.isoformat()
-
     try:
         dt = date_parser.parse(str(value), dayfirst=True, fuzzy=True)
         return dt.date().isoformat()
@@ -138,62 +109,48 @@ def parse_date(value: Any) -> Optional[str]:
 def parse_array_string(value: Any) -> Optional[List[str]]:
     if value is None:
         return None
-
     if isinstance(value, list):
         return [str(v) for v in value]
-
     return [str(value)]
 
 
 def parse_array_integer(value: Any) -> Optional[List[int]]:
     if value is None:
         return None
-
     if isinstance(value, list):
-        parsed_items = []
+        result = []
         for item in value:
             parsed = parse_integer(item)
             if parsed is not None:
-                parsed_items.append(parsed)
-        return parsed_items if parsed_items else None
-
+                result.append(parsed)
+        return result if result else None
     parsed = parse_integer(value)
     return [parsed] if parsed is not None else None
 
 
 def coerce_value(value: Any, type_name: str) -> Any:
-    normalized = normalize_type(type_name)
+    t = normalize_type(type_name)
 
     if value is None:
         return None
-
-    if normalized == "string":
+    if t == "string":
         return str(value)
-
-    if normalized == "integer":
+    if t == "integer":
         return parse_integer(value)
-
-    if normalized == "float":
+    if t == "float":
         return parse_float(value)
-
-    if normalized == "boolean":
+    if t == "boolean":
         return parse_boolean(value)
-
-    if normalized == "date":
+    if t == "date":
         return parse_date(value)
-
-    if normalized == "array[string]":
+    if t == "array[string]":
         return parse_array_string(value)
-
-    if normalized == "array[integer]":
+    if t == "array[integer]":
         return parse_array_integer(value)
-
     return None
 
 
 def build_prompt(text: str, schema: Dict[str, str]) -> str:
-    schema_json = json.dumps(schema, indent=2)
-
     return f"""
 You are a strict information extraction engine.
 
@@ -218,14 +175,14 @@ Text:
 {text}
 
 Schema:
-{schema_json}
+{json.dumps(schema, indent=2)}
 """.strip()
 
 
 def get_openai_client() -> OpenAI:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not set")
+        raise Exception("OPENAI_API_KEY is not set on the server")
     return OpenAI(api_key=api_key)
 
 
@@ -233,31 +190,27 @@ def call_llm(text: str, schema: Dict[str, str]) -> Dict[str, Any]:
     client = get_openai_client()
     prompt = build_prompt(text, schema)
 
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            temperature=0,
-            messages=[
-                {"role": "system", "content": "Return only strict JSON."},
-                {"role": "user", "content": prompt},
-            ],
-        )
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        temperature=0,
+        messages=[
+            {"role": "system", "content": "Return only strict JSON."},
+            {"role": "user", "content": prompt},
+        ],
+    )
 
-        content = response.choices[0].message.content.strip()
+    content = response.choices[0].message.content.strip()
 
-        if content.startswith("```"):
-            content = re.sub(r"^```(?:json)?", "", content).strip()
-            content = re.sub(r"```$", "", content).strip()
+    if content.startswith("```"):
+        content = re.sub(r"^```(?:json)?", "", content).strip()
+        content = re.sub(r"```$", "", content).strip()
 
-        parsed = json.loads(content)
+    parsed = json.loads(content)
 
-        if isinstance(parsed, dict):
-            return parsed
+    if not isinstance(parsed, dict):
+        raise Exception("LLM did not return a JSON object")
 
-        return {}
-
-    except Exception:
-        return {}
+    return parsed
 
 
 @app.get("/")
@@ -275,13 +228,26 @@ def health():
 
 @app.post("/dynamic-extract")
 def dynamic_extract(req: ExtractRequest):
-    validate_schema(req.schema)
+    try:
+        validate_schema(req.schema)
+        raw_output = call_llm(req.text, req.schema)
 
-    raw_output = call_llm(req.text, req.schema)
+        result = {}
+        for field_name, type_name in req.schema.items():
+            raw_value = raw_output.get(field_name, None)
+            result[field_name] = coerce_value(raw_value, type_name)
 
-    result = {}
-    for field_name, type_name in req.schema.items():
-        raw_value = raw_output.get(field_name, None)
-        result[field_name] = coerce_value(raw_value, type_name)
+        return result
 
-    return result
+    except HTTPException as e:
+        raise e
+
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": str(e),
+                "trace": error_trace
+            }
+        )
