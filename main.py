@@ -265,6 +265,23 @@ def extract_salary(text: str) -> Optional[float]:
     return None
 
 
+def extract_power_kw(text: str) -> Optional[float]:
+    patterns = [
+        r'\bpower[_\s-]*kw\s*[:\-]\s*([0-9]+(?:\.[0-9]+)?)\b',
+        r'\bpower\s*[:\-]\s*([0-9]+(?:\.[0-9]+)?)\s*k\s*w\b',
+        r'\bload\s*[:\-]\s*([0-9]+(?:\.[0-9]+)?)\s*k\s*w\b',
+        r'\bcapacity\s*[:\-]\s*([0-9]+(?:\.[0-9]+)?)\s*k\s*w\b',
+        r'\b([0-9]+(?:\.[0-9]+)?)\s*k\s*w\b',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return parse_float(match.group(1))
+
+    return None
+
+
 def extract_date_value(text: str) -> Optional[str]:
     patterns = [
         r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',
@@ -475,6 +492,9 @@ def generic_extract(field_name: str, field_type: str, text: str) -> Any:
 
     if "monthly_salary" in name or "salary" in name or "pay" in name or "compensation" in name:
         return extract_salary(text)
+
+    if "power_kw" in name or ("power" in name and ftype == "float"):
+        return extract_power_kw(text)
 
     if "grade" in name or "level" in name or "band" in name:
         return extract_grade(text)
