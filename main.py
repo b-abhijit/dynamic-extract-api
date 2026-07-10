@@ -50,6 +50,8 @@ INVALID_NAME_VALUES = {
     "person",
     "employee name",
     "customer name",
+    "patient",
+    "doctor",
 }
 
 
@@ -187,19 +189,20 @@ def is_valid_person_name(name: str) -> bool:
 
 def extract_person_name_by_label(text: str, labels: List[str]) -> Optional[str]:
     for label in labels:
-        pattern = rf'\b{label}\s*[:\-]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b'
+        pattern = rf'\b{re.escape(label)}\s*[:\-]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b'
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             candidate = clean_extracted_name(match.group(1))
             if is_valid_person_name(candidate):
                 return candidate
-
     return None
 
 
 def extract_person_name_generic(text: str) -> Optional[str]:
     patterns = [
         r'\bname\s*[:\-]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b',
+        r'\bpatient\s*[:\-]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b',
+        r'\bdoctor\s*[:\-]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b',
         r'\bemployee\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b',
         r'\bcustomer\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b',
         r'\bclient\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b',
@@ -220,6 +223,8 @@ def extract_person_name_generic(text: str) -> Optional[str]:
         "Order Date",
         "Total Amount",
         "Purchase Date",
+        "Patient Name",
+        "Doctor Name",
     }
 
     for candidate in matches:
@@ -381,6 +386,21 @@ def extract_host(text: str) -> Optional[str]:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             return match.group(1).strip().rstrip(".,:;-")
+    return None
+
+
+def extract_patient(text: str) -> Optional[str]:
+    patterns = [
+        r'\bpatient\s*[:\-]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b',
+        r'\bpatient\s+name\s*[:\-]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b',
+        r'\bpatient\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            candidate = clean_extracted_name(match.group(1))
+            if is_valid_person_name(candidate):
+                return candidate
     return None
 
 
@@ -588,6 +608,12 @@ def generic_extract(field_name: str, field_type: str, text: str) -> Any:
         return extract_person_name_by_label(
             text,
             ["customer name", "customer", "client name", "client", "buyer"]
+        ) or extract_person_name_generic(text)
+
+    if "patient" in name:
+        return extract_patient(text) or extract_person_name_by_label(
+            text,
+            ["patient", "patient name"]
         ) or extract_person_name_generic(text)
 
     if "department" in name or name == "dept":
