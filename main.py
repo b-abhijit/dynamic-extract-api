@@ -339,16 +339,19 @@ def extract_metric(text: str) -> Optional[str]:
 
 def extract_threshold(text: str) -> Optional[float]:
     patterns = [
-        r'\bthreshold\s*[:\-]\s*([0-9]+(?:\.[0-9]+)?)\b',
-        r'\bthreshold\s+([0-9]+(?:\.[0-9]+)?)\b',
-        r'\btarget\s*[:\-]\s*([0-9]+(?:\.[0-9]+)?)\b',
+        r'\bthreshold\s*[:=\-]?\s*([0-9]+(?:\.[0-9]+)?)\s*%?',
+        r'\bthreshold\s+is\s+([0-9]+(?:\.[0-9]+)?)\s*%?',
+        r'\btarget\s*[:=\-]?\s*([0-9]+(?:\.[0-9]+)?)\s*%?',
+        r'\balert\s+above\s+([0-9]+(?:\.[0-9]+)?)\s*%?',
+        r'\bexceeds?\s+([0-9]+(?:\.[0-9]+)?)\s*%?',
+        r'\bgreater\s+than\s+([0-9]+(?:\.[0-9]+)?)\s*%?',
         r'\b([0-9]+(?:\.[0-9]+)?)\s*%?\s*threshold\b',
     ]
 
     for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            return parse_float(match.group(1))
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            return float(m.group(1))
 
     return None
 
