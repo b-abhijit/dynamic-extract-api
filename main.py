@@ -317,6 +317,27 @@ def extract_hours(text: str) -> Optional[float]:
     return None
 
 
+def extract_metric(text: str) -> Optional[str]:
+    patterns = [
+        r'\bmetric\s*[:\-]\s*([A-Za-z][A-Za-z0-9 _/\-]+)',
+        r'\bmetric_name\s*[:\-]\s*([A-Za-z][A-Za-z0-9 _/\-]+)',
+        r'\balert\s+for\s+([A-Za-z][A-Za-z0-9 _/\-]+)',
+        r'\b([A-Z]{2,}\s+usage)\b',
+        r'\b([A-Za-z]+\s+usage)\b',
+        r'\b([A-Za-z]+\s+utilization)\b',
+        r'\b([A-Za-z]+\s+load)\b',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            value = match.group(1).strip().rstrip(".,:;-")
+            if value:
+                return value
+
+    return None
+
+
 def extract_date_value(text: str) -> Optional[str]:
     patterns = [
         r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',
@@ -537,6 +558,9 @@ def generic_extract(field_name: str, field_type: str, text: str) -> Any:
 
     if name == "hours" or "hours" in name or "duration" in name:
         return extract_hours(text)
+
+    if name == "metric" or "metric" in name:
+        return extract_metric(text)
 
     if "grade" in name or "level" in name or "band" in name:
         return extract_grade(text)
