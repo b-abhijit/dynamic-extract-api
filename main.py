@@ -354,6 +354,27 @@ def extract_department(text: str) -> Optional[str]:
     return None
 
 
+def extract_grade(text: str) -> Optional[str]:
+    patterns = [
+        r'\bgrade\s*[:\-]\s*([A-Z]\d+)\b',
+        r'\blevel\s*[:\-]\s*([A-Z]\d+)\b',
+        r'\bband\s*[:\-]\s*([A-Z]\d+)\b',
+        r'\bgrade\s+([A-Z]\d+)\b',
+        r'\blevel\s+([A-Z]\d+)\b',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group(1).upper()
+
+    fallback = re.search(r'\b([A-Z]\d+)\b', text)
+    if fallback:
+        return fallback.group(1).upper()
+
+    return None
+
+
 def extract_quantity(text: str) -> Optional[int]:
     patterns = [
         r'\b(\d+)\s+\w+',
@@ -427,6 +448,9 @@ def generic_extract(field_name: str, field_type: str, text: str) -> Any:
 
     if "monthly_salary" in name or "salary" in name or "pay" in name or "compensation" in name:
         return extract_salary(text)
+
+    if "grade" in name or "level" in name or "band" in name:
+        return extract_grade(text)
 
     if name.endswith("_name") or name == "name":
         return extract_person_name_by_label(
