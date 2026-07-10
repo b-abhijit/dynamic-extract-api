@@ -339,13 +339,14 @@ def extract_metric(text: str) -> Optional[str]:
 
 def extract_threshold(text: str) -> Optional[float]:
     patterns = [
-        r'\bthreshold\s*[:=\-]?\s*([0-9]+(?:\.[0-9]+)?)\s*%?',
-        r'\bthreshold\s+is\s+([0-9]+(?:\.[0-9]+)?)\s*%?',
-        r'\btarget\s*[:=\-]?\s*([0-9]+(?:\.[0-9]+)?)\s*%?',
-        r'\balert\s+above\s+([0-9]+(?:\.[0-9]+)?)\s*%?',
-        r'\bexceeds?\s+([0-9]+(?:\.[0-9]+)?)\s*%?',
-        r'\bgreater\s+than\s+([0-9]+(?:\.[0-9]+)?)\s*%?',
-        r'\b([0-9]+(?:\.[0-9]+)?)\s*%?\s*threshold\b',
+        r"threshold\s*(?:is|=|:|-)?\s*([0-9]+(?:\.[0-9]+)?)\s*%?",
+        r"target\s*(?:is|=|:|-)?\s*([0-9]+(?:\.[0-9]+)?)\s*%?",
+        r"limit\s*(?:is|=|:|-)?\s*([0-9]+(?:\.[0-9]+)?)\s*%?",
+        r"above\s+([0-9]+(?:\.[0-9]+)?)\s*%?",
+        r"over\s+([0-9]+(?:\.[0-9]+)?)\s*%?",
+        r"greater than\s+([0-9]+(?:\.[0-9]+)?)\s*%?",
+        r"exceeds?\s+([0-9]+(?:\.[0-9]+)?)\s*%?",
+        r"([0-9]+(?:\.[0-9]+)?)\s*%?\s*threshold",
     ]
 
     for pattern in patterns:
